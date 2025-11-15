@@ -418,7 +418,7 @@ with col3:
     # Link button to download test CSV file
     st.link_button(
         label="📩 Download an example CSV File",
-        url="https://ik.imagekit.io/mtuq5zmd4/test_data_1.csv?updatedAt=1763204433795",
+        url="https://ik.imagekit.io/mtuq5zmd4/test_data_1.csv?updatedAt=1763208492961",
         help="Download a sample test CSV file with example data",
         width='stretch'
     )
@@ -827,7 +827,7 @@ with tab2:
         # Use direct VOC labels mapping (defined at top of file)
         # Determine class names based on number of probabilities
         num_classes = len(proba)
-        class_names = [VOC_LABELS.get(i+1, f"Class_{i}") for i in range(num_classes)]
+        class_names = [VOC_LABELS.get(i, f"Class_{i}") for i in range(num_classes)]
         
         # Create probability dataframe
         prob_df = pd.DataFrame({
@@ -859,7 +859,8 @@ with tab2:
         st.markdown("### Probability Details")
         prob_df_display = prob_df.copy()
         prob_df_display["Probability"] = prob_df_display["Probability"].apply(lambda x: f"{x:.4f} ({x:.2%})")
-        st.dataframe(prob_df_display, width='stretch')
+        prob_df_display = prob_df_display.reset_index(drop=True)  # Reset index to avoid showing row numbers
+        st.dataframe(prob_df_display, width='stretch', hide_index=True)
         
         # Highlight top 3
         st.markdown("### Top 3 Predictions")
