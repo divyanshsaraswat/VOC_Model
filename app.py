@@ -12,6 +12,15 @@ from pathlib import Path
 import warnings
 import plotly.graph_objects as go
 import plotly.express as px
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from io import BytesIO
+from datetime import datetime
+import base64
 warnings.filterwarnings('ignore')
 
 # Direct VOC label mapping (0-based indexing)
@@ -26,114 +35,191 @@ VOC_LABELS = {
 
 # Page Configuration
 st.set_page_config(
-    page_title="ML Model Predictor",
-    page_icon="🤖",
+    page_title="VOC Classification Model",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better UI
-st.markdown("""
+# Initialize dark mode in session state
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+# Custom CSS for professional and subtle UI
+base_css = """
     <style>
+    /* Professional Typography */
     .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
+        font-size: 2rem;
+        font-weight: 600;
+        color: #2c3e50;
         text-align: center;
-        padding: 1rem 0;
+        padding: 1.5rem 0 1rem 0;
+        letter-spacing: -0.5px;
+        border-bottom: 2px solid #ecf0f1;
+        margin-bottom: 1.5rem;
     }
+    
+    /* Subtle Box Styles */
     .prediction-box {
-        background-color: #f0f2f6;
+        background-color: #f8f9fa;
         padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 5px solid #1f77b4;
+        border-radius: 8px;
+        border-left: 3px solid #3498db;
         margin: 1rem 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
+    
     .confidence-box {
-        background-color: #e8f5e9;
-        padding: 1rem;
-        border-radius: 5px;
+        background-color: #f0f4f8;
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
         margin-top: 0.5rem;
+        border: 1px solid #e1e8ed;
     }
+    
     .error-box {
-        background-color: #ffebee;
+        background-color: #fef5f5;
         padding: 1rem;
-        color: #000000;
-        border-radius: 5px;
-        border-left: 5px solid #f44336;
+        color: #721c24;
+        border-radius: 6px;
+        border-left: 3px solid #dc3545;
         margin: 1rem 0;
+        border: 1px solid #f5c6cb;
     }
+    
     .info-box {
-        background-color: #e3f2fd;
+        background-color: #f0f7ff;
         padding: 1rem;
-        border-radius: 5px;
-        border-left: 5px solid #2196f3;
+        border-radius: 6px;
+        border-left: 3px solid #3498db;
         margin: 1rem 0;
+        border: 1px solid #d1ecf1;
     }
+    
+    /* Professional Prediction Card */
     .prediction-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        background: #ffffff;
+        color: #2c3e50;
         padding: 2rem;
-        border-radius: 15px;
+        border-radius: 8px;
         text-align: center;
-        margin: 1rem 0;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        margin: 1.5rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border: 1px solid #e1e8ed;
     }
+    
     .prediction-card h2 {
-        font-size: 3rem;
+        font-size: 2.25rem;
         margin: 0.5rem 0;
-        font-weight: bold;
+        font-weight: 600;
+        color: #2c3e50;
+        letter-spacing: -0.5px;
     }
+    
     .prediction-card p {
-        font-size: 1.2rem;
+        font-size: 1rem;
         margin: 0.5rem 0;
+        color: #5a6c7d;
     }
+    
+    /* Subtle Confidence Badges */
     .confidence-high {
-        background-color: #4caf50;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
+        background-color: #d4edda;
+        color: #155724;
+        padding: 0.4rem 0.9rem;
+        border-radius: 4px;
         display: inline-block;
-        font-weight: bold;
+        font-weight: 500;
+        font-size: 0.9rem;
+        border: 1px solid #c3e6cb;
     }
+    
     .confidence-medium {
-        background-color: #ff9800;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
+        background-color: #fff3cd;
+        color: #856404;
+        padding: 0.4rem 0.9rem;
+        border-radius: 4px;
         display: inline-block;
-        font-weight: bold;
+        font-weight: 500;
+        font-size: 0.9rem;
+        border: 1px solid #ffeaa7;
     }
+    
     .confidence-low {
-        background-color: #f44336;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 0.4rem 0.9rem;
+        border-radius: 4px;
         display: inline-block;
-        font-weight: bold;
+        font-weight: 500;
+        font-size: 0.9rem;
+        border: 1px solid #f5c6cb;
     }
+    
+    /* Professional Status Badges */
     .safe-badge {
-        background-color: #4caf50;
-        color: white;
-        padding: 1rem 2rem;
-        border-radius: 10px;
-        font-size: 2rem;
-        font-weight: bold;
+        background-color: #d4edda;
+        color: #155724;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        font-size: 1.1rem;
+        font-weight: 500;
         text-align: center;
         margin: 1rem 0;
+        border: 1px solid #c3e6cb;
     }
+    
     .hazardous-badge {
-        background-color: #f44336;
-        color: white;
-        padding: 1rem 2rem;
-        border-radius: 10px;
-        font-size: 2rem;
-        font-weight: bold;
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        font-size: 1.1rem;
+        font-weight: 500;
         text-align: center;
         margin: 1rem 0;
+        border: 1px solid #f5c6cb;
+    }
+    
+    /* Professional Button Styling */
+    .stButton > button {
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* Subtle Input Styling */
+    .stNumberInput > div > div > input,
+    .stTextInput > div > div > input {
+        border-radius: 6px;
+    }
+    
+    /* Professional Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px 6px 0 0;
+        padding: 0.75rem 1.5rem;
+    }
+    
+    /* Subtle Divider */
+    hr {
+        border: none;
+        border-top: 1px solid #e1e8ed;
+        margin: 1.5rem 0;
     }
     </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(base_css, unsafe_allow_html=True)
 
 
 @st.cache_resource
@@ -276,6 +362,389 @@ def get_human_readable_label(prediction, model_info, label_encoder=None):
     return str(prediction)
 
 
+def generate_prediction_pdf(prediction, pred_label, feature_inputs, scaled_inputs, proba, model_info, n_features, model):
+    """
+    Generate a comprehensive PDF report with all prediction results, tables, and visualizations.
+    Includes graphs from Probability Analysis, Feature Importance, and Input Visualization tabs.
+    """
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.3*inch, bottomMargin=0.3*inch, leftMargin=0.5*inch, rightMargin=0.5*inch)
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Helper function to convert Plotly figure to image bytes
+        def fig_to_image_bytes(fig, width=800, height=500):
+            """Convert Plotly figure to image bytes for PDF inclusion."""
+            try:
+                img_bytes = fig.to_image(format="png", width=width, height=height, scale=2)
+                return BytesIO(img_bytes)
+            except Exception as e:
+                # Silently fail - graph won't be included in PDF
+                return None
+        
+        # Custom styles with reduced spacing
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=20,
+            textColor=colors.HexColor('#1f77b4'),
+            spaceAfter=8,
+            spaceBefore=0,
+            alignment=TA_CENTER
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#333333'),
+            spaceAfter=4,
+            spaceBefore=8
+        )
+        
+        subheading_style = ParagraphStyle(
+            'SubHeading',
+            parent=styles['Heading3'],
+            fontSize=11,
+            textColor=colors.HexColor('#555555'),
+            spaceAfter=3,
+            spaceBefore=6
+        )
+        
+        # Title
+        story.append(Paragraph("VOC Classification Prediction Report", title_style))
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Date and Time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        story.append(Paragraph(f"<b>Generated:</b> {current_time}", styles['Normal']))
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Prediction Result Section
+        story.append(Paragraph("Prediction Result", heading_style))
+        story.append(Spacer(1, 0.05*inch))
+        
+        pred_data = [
+            ['Predicted VOC Class', pred_label],
+            ['Numeric Prediction', str(prediction)],
+        ]
+        
+        if proba is not None:
+            max_prob = np.max(proba)
+            conf_level, _ = get_confidence_level(max_prob)
+            pred_data.append(['Confidence Level', f"{conf_level} ({max_prob:.2%})"])
+        
+        pred_table = Table(pred_data, colWidths=[3*inch, 3*inch])
+        pred_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e3f2fd')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(pred_table)
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Probability Distribution (if available)
+        if proba is not None:
+            story.append(Paragraph("Probability Distribution", heading_style))
+            story.append(Spacer(1, 0.05*inch))
+            
+            # Create probability table
+            num_classes = len(proba)
+            class_names = [VOC_LABELS.get(i, f"Class_{i}") for i in range(num_classes)]
+            
+            prob_data = [['VOC Class', 'Probability', 'Percentage']]
+            for i, class_name in enumerate(class_names):
+                prob_data.append([
+                    class_name,
+                    f"{proba[i]:.6f}",
+                    f"{proba[i]:.2%}"
+                ])
+            
+            # Sort by probability (descending)
+            prob_data_sorted = [prob_data[0]] + sorted(prob_data[1:], key=lambda x: float(x[1]), reverse=True)
+            
+            prob_table = Table(prob_data_sorted, colWidths=[2.5*inch, 1.5*inch, 1.5*inch])
+            prob_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ]))
+        story.append(prob_table)
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Probability Bar Chart Graph
+        if proba is not None:
+            story.append(Paragraph("Probability Distribution Chart", heading_style))
+            story.append(Spacer(1, 0.05*inch))
+            
+            num_classes = len(proba)
+            class_names = [VOC_LABELS.get(i, f"Class_{i}") for i in range(num_classes)]
+            prob_df = pd.DataFrame({
+                "Class": class_names,
+                "Probability": proba
+            }).sort_values("Probability", ascending=False)
+            
+            fig_prob = px.bar(
+                prob_df, 
+                x="Class", 
+                y="Probability",
+                title="Class Probability Distribution",
+                color="Probability",
+                color_continuous_scale="Viridis",
+                text="Probability"
+            )
+            fig_prob.update_traces(texttemplate='%{text:.2%}', textposition='outside')
+            fig_prob.update_layout(
+                yaxis_title="Probability",
+                xaxis_title="Class",
+                height=350,
+                showlegend=False,
+                yaxis=dict(tickformat='.0%'),
+                margin=dict(l=50, r=50, t=50, b=50)
+            )
+            
+            img_bytes = fig_to_image_bytes(fig_prob, width=700, height=300)
+            if img_bytes:
+                img = Image(img_bytes, width=6.5*inch, height=2.8*inch)
+                story.append(img)
+                story.append(Spacer(1, 0.15*inch))
+        
+        # Feature Importance Section
+        if model_info["has_feature_importances"] or model_info["has_coef"]:
+            story.append(Spacer(1, 0.1*inch))
+            story.append(Paragraph("Feature Importance Analysis", heading_style))
+            story.append(Spacer(1, 0.05*inch))
+            
+            if model_info["has_feature_importances"]:
+                importances = model.feature_importances_
+                feature_names = [f"Feature {i+1}" for i in range(len(importances))]
+                importance_df = pd.DataFrame({
+                    "Feature": feature_names,
+                    "Importance": importances
+                }).sort_values("Importance", ascending=False).head(20)  # Top 20 for readability
+                
+                fig_importance = px.bar(
+                    importance_df,
+                    x="Importance",
+                    y="Feature",
+                    orientation='h',
+                    title="Top 20 Feature Importance Ranking",
+                    color="Importance",
+                    color_continuous_scale="Blues",
+                    text="Importance"
+                )
+                fig_importance.update_traces(texttemplate='%{text:.4f}', textposition='outside')
+                fig_importance.update_layout(
+                    xaxis_title="Importance",
+                    yaxis_title="Feature",
+                    height=min(350, max(250, len(importance_df) * 20)),
+                    showlegend=False,
+                    margin=dict(l=50, r=50, t=50, b=50)
+                )
+                
+                img_bytes = fig_to_image_bytes(fig_importance, width=700, height=min(350, max(250, len(importance_df) * 20)))
+                if img_bytes:
+                    img = Image(img_bytes, width=6.5*inch, height=min(3*inch, max(2.2*inch, len(importance_df) * 0.15*inch)))
+                    story.append(img)
+                    story.append(Spacer(1, 0.1*inch))
+            
+            elif model_info["has_coef"]:
+                coef = model.coef_[0] if len(model.coef_.shape) > 1 else model.coef_
+                feature_names = [f"Feature {i+1}" for i in range(len(coef))]
+                importance_df = pd.DataFrame({
+                    "Feature": feature_names,
+                    "Coefficient": coef
+                }).sort_values("Coefficient", key=abs, ascending=False).head(20)  # Top 20
+                
+                fig_coef = px.bar(
+                    importance_df,
+                    x="Coefficient",
+                    y="Feature",
+                    orientation='h',
+                    title="Top 20 Feature Coefficients",
+                    color="Coefficient",
+                    color_continuous_scale="RdBu",
+                    text="Coefficient"
+                )
+                fig_coef.update_traces(texttemplate='%{text:.4f}', textposition='outside')
+                fig_coef.update_layout(
+                    xaxis_title="Coefficient",
+                    yaxis_title="Feature",
+                    height=min(350, max(250, len(importance_df) * 20)),
+                    showlegend=False,
+                    margin=dict(l=50, r=50, t=50, b=50)
+                )
+                
+                img_bytes = fig_to_image_bytes(fig_coef, width=700, height=min(350, max(250, len(importance_df) * 20)))
+                if img_bytes:
+                    img = Image(img_bytes, width=6.5*inch, height=min(3*inch, max(2.2*inch, len(importance_df) * 0.15*inch)))
+                    story.append(img)
+                    story.append(Spacer(1, 0.1*inch))
+        
+        # Input Visualization Section
+        if feature_inputs and len(feature_inputs) > 0:
+            story.append(Spacer(1, 0.1*inch))
+            story.append(Paragraph("Input Feature Visualization", heading_style))
+            story.append(Spacer(1, 0.05*inch))
+            
+            feature_names = [f"Feature {i+1}" for i in range(len(feature_inputs))]
+            input_df = pd.DataFrame({
+                "Feature": feature_names,
+                "Raw Value": feature_inputs
+            })
+            
+            # Raw Input Values Chart
+            story.append(Paragraph("Raw Input Values", subheading_style))
+            story.append(Spacer(1, 0.03*inch))
+            
+            # Show only first 50 features for readability in PDF
+            display_df = input_df.head(50) if len(input_df) > 50 else input_df
+            
+            fig_raw = px.bar(
+                display_df,
+                x="Feature",
+                y="Raw Value",
+                title="Input Feature Values (Raw) - First 50 Features",
+                color="Raw Value",
+                color_continuous_scale="Plasma",
+                text="Raw Value"
+            )
+            fig_raw.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_raw.update_layout(height=300, showlegend=False, xaxis_tickangle=-45, margin=dict(l=50, r=50, t=50, b=50))
+            
+            img_bytes = fig_to_image_bytes(fig_raw, width=700, height=280)
+            if img_bytes:
+                img = Image(img_bytes, width=6.5*inch, height=2.5*inch)
+                story.append(img)
+                story.append(Spacer(1, 0.1*inch))
+            
+            # Scaled Values if available
+            if scaled_inputs is not None and len(scaled_inputs) > 0:
+                input_df["Scaled Value"] = scaled_inputs
+                display_df_scaled = input_df.head(50) if len(input_df) > 50 else input_df
+                
+                story.append(Paragraph("Scaled Input Values", subheading_style))
+                story.append(Spacer(1, 0.03*inch))
+                
+                fig_scaled = px.bar(
+                    display_df_scaled,
+                    x="Feature",
+                    y="Scaled Value",
+                    title="Input Feature Values (Scaled) - First 50 Features",
+                    color="Scaled Value",
+                    color_continuous_scale="Viridis",
+                    text="Scaled Value"
+                )
+                fig_scaled.update_traces(texttemplate='%{text:.4f}', textposition='outside')
+                fig_scaled.update_layout(height=300, showlegend=False, xaxis_tickangle=-45, margin=dict(l=50, r=50, t=50, b=50))
+                
+                img_bytes = fig_to_image_bytes(fig_scaled, width=700, height=280)
+                if img_bytes:
+                    img = Image(img_bytes, width=6.5*inch, height=2.5*inch)
+                    story.append(img)
+                    story.append(Spacer(1, 0.1*inch))
+                
+                # Comparison Chart
+                story.append(Paragraph("Raw vs Scaled Comparison", subheading_style))
+                story.append(Spacer(1, 0.03*inch))
+                
+                fig_comp = go.Figure()
+                display_features = feature_names[:50] if len(feature_names) > 50 else feature_names
+                display_raw = feature_inputs[:50] if len(feature_inputs) > 50 else feature_inputs
+                display_scaled = scaled_inputs[:50] if len(scaled_inputs) > 50 else scaled_inputs
+                
+                fig_comp.add_trace(go.Bar(
+                    x=display_features,
+                    y=display_raw,
+                    name="Raw Values",
+                    marker_color='lightblue'
+                ))
+                fig_comp.add_trace(go.Bar(
+                    x=display_features,
+                    y=display_scaled,
+                    name="Scaled Values",
+                    marker_color='orange'
+                ))
+                fig_comp.update_layout(
+                    title="Raw vs Scaled Input Comparison - First 50 Features",
+                    xaxis_title="Feature",
+                    yaxis_title="Value",
+                    barmode='group',
+                    height=300,
+                    xaxis_tickangle=-45,
+                    margin=dict(l=50, r=50, t=50, b=50)
+                )
+                
+                img_bytes = fig_to_image_bytes(fig_comp, width=700, height=280)
+                if img_bytes:
+                    img = Image(img_bytes, width=6.5*inch, height=2.5*inch)
+                    story.append(img)
+                    story.append(Spacer(1, 0.15*inch))
+        
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Model Information Section
+        story.append(Paragraph("Model Information", heading_style))
+        story.append(Spacer(1, 0.05*inch))
+        
+        model_data = [
+            ['Model Type', model_info["type"]],
+            ['Number of Features', str(n_features)],
+            ['Supports Probabilities', "Yes" if model_info["has_predict_proba"] else "No"],
+        ]
+        
+        if model_info["classes"]:
+            model_data.append(['Model Classes', ", ".join(map(str, model_info["classes"]))])
+        
+        model_table = Table(model_data, colWidths=[3*inch, 3*inch])
+        model_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e8f5e9')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(model_table)
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Footer
+        story.append(Spacer(1, 0.1*inch))
+        story.append(Paragraph("Generated by VOC Classification Model - Streamlit Application", 
+                              ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, 
+                                            textColor=colors.grey, alignment=TA_CENTER)))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        # Return error message in a simple PDF if generation fails
+        error_buffer = BytesIO()
+        error_doc = SimpleDocTemplate(error_buffer, pagesize=A4)
+        error_story = [Paragraph(f"Error generating PDF: {str(e)}", getSampleStyleSheet()['Normal'])]
+        error_doc.build(error_story)
+        error_buffer.seek(0)
+        return error_buffer
+
+
 def create_default_inputs(n_features=4):
     """
     Create default input fields based on number of features.
@@ -310,38 +779,133 @@ with st.sidebar:
     
     st.markdown("""
     ### Model Information
-    This application loads a pre-trained machine learning model
-    and allows you to make predictions interactively.
+    This application uses a pre-trained machine learning model for **Volatile Organic Compound (VOC) Classification**. 
+    
+    The model can identify and classify different VOC types based on sensor feature data, helping in air quality monitoring, 
+    industrial safety, and environmental analysis.
+    
+    **Supported VOC Classes:**
+    - **Ethanol** (Class 0)
+    - **Ethylene** (Class 1)
+    - **Ammonia** (Class 2)
+    - **Acetaldehyde** (Class 3)
+    - **Acetone** (Class 4)
+    - **Toluene** (Class 5)
+    
+    ### Model Pipeline
+    1. **Input Features**: 128 sensor features (Feature1 - Feature128)
+    2. **Preprocessing**: Features are scaled using StandardScaler
+    3. **Prediction**: Model predicts VOC class with probability scores
+    4. **Output**: Human-readable VOC name with confidence levels
     
     ### Version
-    **v1.0.0**
-    
-    ### Dataset Description
-    The model was trained on a custom dataset with features
-    that need to be provided as inputs.
+    **v1.0.0** - Production Ready
     
     ### How to Use
-    1. Enter values for all required features
-    2. Click the "Predict" button
-    3. View the prediction and confidence scores
-    4. Check the history section for previous predictions
+    1. **Manual Input**: Enter feature values using the input fields
+    2. **CSV Upload**: Upload a CSV file with feature columns
+    3. **Predict**: Click "Predict" for single prediction or "Batch Predict" for multiple rows
+    4. **View Results**: Check predictions, probabilities, and visualizations in different tabs
     
-    ### GitHub Repository
-    [View on GitHub](https://github.com/yourusername/voc-streamlit)
+    ### Features
+    - Real-time predictions
+    - Batch processing support
+    - Interactive visualizations
+    - Probability distributions
+    - Feature importance analysis
+    - Input data visualization
     
     ### Instructions
-    - Ensure all fields are filled
+    - Ensure all 128 features are provided
     - Use valid numeric values
-    - Check error messages if prediction fails
-    """)
+    - CSV files should have Feature1-Feature128 columns
+    - Download the example CSV template for reference
     
-    # Dark mode toggle (optional)
-    dark_mode = st.checkbox("🌙 Dark Mode (Coming Soon)", value=False)
+    ### GitHub Repository
+    <a href="https://github.com/divyanshsaraswat/VOC_Model" target="_blank" style="display: inline-block; margin-top: 1px;margin-bottom: 10px;">
+        <img src="https://www.pngkey.com/png/full/183-1838196_github-white-logo-png.png" alt="GitHub" style="width: 100%; height: 100%; vertical-align: middle;mix-blend-mode: difference">
+    </a>
+    """, unsafe_allow_html=True)
+    
+    # Dark mode toggle (functional)
+    dark_mode = st.checkbox("🌙 Dark Mode", value=st.session_state.dark_mode, key="dark_mode_checkbox")
+    
+    # Update session state when checkbox changes
+    if dark_mode != st.session_state.dark_mode:
+        st.session_state.dark_mode = dark_mode
+        st.rerun()
 
+# Apply dark mode CSS if enabled (after sidebar to ensure state is updated)
+if st.session_state.dark_mode:
+    dark_mode_css = """
+    <style>
+    /* Dark mode styles */
+    [data-testid="stAppViewContainer"] {
+        background-color: #0e1117 !important;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #1e1e1e !important;
+    }
+    .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, div {
+        color: #fafafa !important;
+    }
+    .stDataFrame {
+        background-color: #1e1e1e !important;
+    }
+    .stExpander {
+        background-color: #1e1e1e !important;
+        border: 1px solid #333 !important;
+    }
+    .stMetric {
+        background-color: #1e1e1e !important;
+    }
+    .element-container {
+        color: #fafafa !important;
+    }
+    .main .block-container {
+        background-color: #0e1117 !important;
+    }
+    .stButton>button {
+        background-color: #1e1e1e !important;
+        color: #fafafa !important;
+        border: 1px solid #333 !important;
+    }
+    .stButton>button:hover {
+        background-color: #2e2e2e !important;
+    }
+    .stSelectbox>div>div {
+        background-color: #1e1e1e !important;
+        color: #fafafa !important;
+    }
+    .stNumberInput>div>div>input {
+        background-color: #1e1e1e !important;
+        color: #fafafa !important;
+    }
+    .stTextInput>div>div>input {
+        background-color: #1e1e1e !important;
+        color: #fafafa !important;
+    }
+    .stFileUploader {
+        background-color: #1e1e1e !important;
+    }
+    .stRadio>div {
+        background-color: #1e1e1e !important;
+    }
+    .stCheckbox>label {
+        color: #fafafa !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #1e1e1e !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #fafafa !important;
+    }
+    </style>
+    """
+    st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # Main Content
-st.markdown('<div class="main-header">🤖 ML Model Predictor</div>', unsafe_allow_html=True)
-st.markdown("---")
+st.markdown('<div class="main-header" style="font-size: 2rem; font-weight: 600; color: #ffffff; text-align: center; padding: 1.5rem 0 1rem 0; letter-spacing: -0.5px; border-bottom: 2px solid #ecf0f1; margin-bottom: 1.5rem;">VOC Classification Model</div>', unsafe_allow_html=True)
 
 # Load Model, Scaler, and Label Encoder
 model, model_error = load_model()
@@ -357,7 +921,7 @@ if model is None:
     st.stop()
 
 # Show model ready status
-st.success("✅ Model is ready to go!")
+st.success("Model loaded successfully")
     
 # Show warnings for missing optional files (collapsed in expander)
 if (scaler_error and scaler is None) or (label_encoder_error and label_encoder is None):
@@ -532,7 +1096,34 @@ if "last_proba" not in st.session_state:
 
 # TAB 1: PREDICTION
 with tab1:
-    st.markdown("## 🎯 Prediction")
+    # Header with PDF download button on the right
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
+        st.markdown("## 🎯 Prediction")
+    with header_col2:
+        # PDF Download button (only show if prediction exists)
+        if st.session_state.last_prediction is not None:
+            try:
+                pdf_buffer = generate_prediction_pdf(
+                    st.session_state.last_prediction,
+                    get_human_readable_label(st.session_state.last_prediction, model_info, label_encoder),
+                    st.session_state.last_inputs if st.session_state.last_inputs else [],
+                    st.session_state.last_scaled_inputs if st.session_state.last_scaled_inputs else None,
+                    np.array(st.session_state.last_proba) if st.session_state.last_proba else None,
+                    model_info,
+                    n_features,
+                    model
+                )
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_buffer,
+                    file_name=f"voc_prediction_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    help="Download complete prediction report as PDF",
+                    width='stretch'
+                )
+            except Exception as e:
+                st.error(f"PDF generation error: {str(e)}")
     
     # Check if CSV data is available with multiple rows
     has_csv_data = st.session_state.csv_data is not None and len(st.session_state.csv_data) > 1
@@ -1151,7 +1742,6 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; padding: 2rem 0;'>
     <p>Built with ❤️ using Streamlit</p>
-    <p>Production-Ready ML Prediction App v1.0.0</p>
 </div>
 """, unsafe_allow_html=True)
 
