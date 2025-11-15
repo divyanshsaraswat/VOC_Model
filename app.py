@@ -1064,6 +1064,10 @@ else:
         })
         st.dataframe(input_df, width='stretch')
 
+# Prevent NameError by ensuring feature_inputs always exists
+if "feature_inputs" not in locals():
+    feature_inputs = None
+
 # Store current inputs in session state
 if feature_inputs is not None:
     st.session_state.current_inputs = feature_inputs
