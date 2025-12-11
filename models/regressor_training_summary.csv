@@ -1,0 +1,7 @@
+Gas,MAE,RMSE,R2,Best Params
+Ethanol,4.293492583436545,18.5230043663509,0.9495043807966712,"{'min_samples_leaf': 10, 'max_iter': 100, 'max_depth': 10, 'learning_rate': 0.2, 'l2_regularization': 1.0}"
+Ethylene,8.595771318125024,22.823249119621497,0.9185228524644821,"{'min_samples_leaf': 10, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.05, 'l2_regularization': 0.1}"
+Ammonia,28.425727818361597,47.22989930963337,0.9718230961593077,"{'min_samples_leaf': 10, 'max_iter': 100, 'max_depth': 3, 'learning_rate': 0.05, 'l2_regularization': 0.1}"
+Acetaldehyde,5.4946686948206525,12.542534055803022,0.9725553897289277,"{'min_samples_leaf': 10, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.05, 'l2_regularization': 0.1}"
+Acetone,6.731395723549309,16.688901563499726,0.9944357503852823,"{'min_samples_leaf': 10, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.05, 'l2_regularization': 0.1}"
+Toluene,4.534634375793918,18.197929096380342,0.6963071273494879,"{'min_samples_leaf': 10, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.05, 'l2_regularization': 0.1}"

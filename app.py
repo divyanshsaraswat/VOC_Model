@@ -223,14 +223,18 @@ st.markdown(base_css, unsafe_allow_html=True)
 
 
 @st.cache_resource
-def load_model(model_path="model.pkl"):
+def load_model(model_path="models/classifier.pkl"):
     """
     Load the ML model with caching for performance.
     Uses @st.cache_resource to ensure model loads only once.
     """
     try:
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model file '{model_path}' not found!")
+            # Fallback to check root if not in models/ (for backward compatibility during migration)
+            if os.path.exists("model.pkl"):
+                 model_path = "model.pkl"
+            else:
+                 raise FileNotFoundError(f"Model file '{model_path}' not found!")
         
         model = joblib.load(model_path)
         
@@ -245,14 +249,17 @@ def load_model(model_path="model.pkl"):
 
 
 @st.cache_resource
-def load_scaler(scaler_path="scaler.pkl"):
+def load_scaler(scaler_path="models/scaler.pkl"):
     """
     Load the scaler with caching for performance.
     Uses @st.cache_resource to ensure scaler loads only once.
     """
     try:
         if not os.path.exists(scaler_path):
-            return None, f"Scaler file '{scaler_path}' not found. Predictions will run without scaling."
+             if os.path.exists("scaler.pkl"):
+                 scaler_path = "scaler.pkl"
+             else:
+                return None, f"Scaler file '{scaler_path}' not found. Predictions will run without scaling."
         
         scaler = joblib.load(scaler_path)
         return scaler, None
@@ -261,14 +268,17 @@ def load_scaler(scaler_path="scaler.pkl"):
 
 
 @st.cache_resource
-def load_label_encoder(encoder_path="label_encoding.pkl"):
+def load_label_encoder(encoder_path="models/label_encoding.pkl"):
     """
     Load the label encoder with caching for performance.
     Uses @st.cache_resource to ensure label encoder loads only once.
     """
     try:
         if not os.path.exists(encoder_path):
-            return None, f"Label encoder file '{encoder_path}' not found. Predictions will use numeric labels."
+             if os.path.exists("label_encoding.pkl"):
+                 encoder_path = "label_encoding.pkl"
+             else:
+                return None, f"Label encoder file '{encoder_path}' not found. Predictions will use numeric labels."
         
         label_encoder = joblib.load(encoder_path)
         return label_encoder, None
@@ -948,6 +958,24 @@ with st.expander("ℹ️ Model Details", expanded=False):
     if model_info["classes"]:
         st.write("**Classes:**", ", ".join(map(str, model_info["classes"])))
 
+    # Add Regression Model Details
+    st.markdown("---")
+    st.markdown("### 📉 Regression Models (Concentration)")
+    
+    reg_summary_path = os.path.join("models", "regressor_selection_summary.csv")
+    if os.path.exists(reg_summary_path):
+        try:
+            reg_summary = pd.read_csv(reg_summary_path)
+            st.dataframe(
+                reg_summary[["Gas", "Best Model", "RMSE"]].style.format({"RMSE": "{:.4f}"}),
+                hide_index=True,
+                use_container_width=True
+            )
+        except Exception as e:
+            st.warning(f"Could not load regressor summary: {e}")
+    else:
+        st.info("Regression models summary not found. Models are loaded per gas type.")
+
 st.markdown("---")
 
 # Input Section
@@ -1097,6 +1125,10 @@ if "last_scaled_inputs" not in st.session_state:
     st.session_state.last_scaled_inputs = None
 if "last_proba" not in st.session_state:
     st.session_state.last_proba = None
+if "last_concentration" not in st.session_state:
+    st.session_state.last_concentration = None
+if "last_regressor_info" not in st.session_state:
+    st.session_state.last_regressor_info = None
 
 # TAB 1: PREDICTION
 with tab1:
@@ -1198,12 +1230,58 @@ with tab1:
                 # Get human-readable label
                 pred_label = get_human_readable_label(prediction, model_info, label_encoder)
                 
-                # Display Large Prediction Card
-                st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
-                st.markdown(f'<h2>{pred_label}</h2>', unsafe_allow_html=True)
-                if isinstance(prediction, (np.integer, int)) and pred_label == str(prediction):
-                    st.markdown(f'<p>Prediction: {pred_display}</p>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                # --- Stage 2: Concentration Regression ---
+                concentration = None
+                regressor_info = None
+                
+                if pred_label != "Unknown":
+                    try:
+                        from src.regressors import ConcentrationRegressor
+                        # Regressor expects raw features (input_array)
+                        # Note: input_array is 2D (1, n_features)
+                        reg_model = ConcentrationRegressor(pred_label)
+                        if reg_model.model:
+                            concentration = reg_model.predict(input_array)
+                            
+                            # Get feature importance if available
+                            if hasattr(reg_model.model, "feature_importances_"):
+                                regressor_info = {
+                                    "importances": reg_model.model.feature_importances_,
+                                    "name": f"{pred_label} Regressor"
+                                }
+                    except Exception as e:
+                        st.error(f"Regression stage error: {e}")
+                
+                st.session_state.last_concentration = concentration
+                st.session_state.last_regressor_info = regressor_info
+                
+                # Display Result Cards
+                st.markdown("### Prediction Results")
+                res_col1, res_col2 = st.columns(2)
+                
+                with res_col1:
+                    st.markdown(f"""
+                    <div class="prediction-card">
+                        <p>Detected Gas</p>
+                        <h2>{pred_label}</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with res_col2:
+                    if concentration is not None:
+                        st.markdown(f"""
+                        <div class="prediction-card">
+                            <p>Concentration</p>
+                            <h2>{concentration:.2f} <small style="font-size:0.5em">ppmv</small></h2>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div class="prediction-card" style="opacity: 0.7">
+                            <p>Concentration</p>
+                            <h2>N/A</h2>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 # Display Confidence Score (for classification)
                 if proba is not None:
@@ -1239,6 +1317,7 @@ with tab1:
                     "inputs": feature_inputs.copy(),
                     "prediction": pred_display,
                     "label": pred_label,
+                    "concentration": concentration,
                     "probabilities": proba.tolist() if proba is not None else None
                 }
                 if "prediction_history" not in st.session_state:
@@ -1305,10 +1384,24 @@ with tab1:
                                 if model_info["has_predict_proba"]:
                                     proba = model.predict_proba(scaled_inputs)[0]
                                 
+                                # --- Stage 2: Concentration Regression ---
+                                concentration = None
+                                pred_label_batch = get_human_readable_label(prediction, model_info, label_encoder)
+                                
+                                if pred_label_batch != "Unknown":
+                                    try:
+                                        from src.regressors import ConcentrationRegressor
+                                        reg_model = ConcentrationRegressor(pred_label_batch)
+                                        if reg_model.model:
+                                            concentration = reg_model.predict(input_array)
+                                    except Exception:
+                                        pass
+                                
                                 predictions_list.append({
                                     "Row": row_idx + 1,
                                     "Prediction": prediction,
                                     "Label": get_human_readable_label(prediction, model_info, label_encoder),
+                                    "Concentration": concentration,
                                     "Probabilities": proba.tolist() if proba is not None else None
                                 })
                             except Exception as e:
@@ -1322,7 +1415,8 @@ with tab1:
                             # Create new dataframe with only Row, Prediction, and Probabilities
                             results_data = {
                                 "Row": [],
-                                "Prediction": []
+                                "Prediction": [],
+                                "Concentration": []
                             }
                             
                             # Add predictions (mapped using label_encoder)
@@ -1331,6 +1425,7 @@ with tab1:
                                     results_data["Row"].append(idx + 1)
                                     # Prediction already mapped using label_encoder in get_human_readable_label
                                     results_data["Prediction"].append(pred_dict[idx]["Label"])
+                                    results_data["Concentration"].append(f"{pred_dict[idx]['Concentration']:.2f}" if pred_dict[idx]['Concentration'] is not None else "N/A")
                                 else:
                                     # Skip invalid rows in results
                                     continue
@@ -1400,7 +1495,8 @@ with tab1:
             history_data.append({
                 "Index": idx + 1,
                 "Inputs": str(entry["inputs"])[:50] + "..." if len(str(entry["inputs"])) > 50 else str(entry["inputs"]),
-                "Prediction": entry.get("label", entry.get("prediction", "N/A"))
+                "Prediction": entry.get("label", entry.get("prediction", "N/A")),
+                "Conc. (ppmv)": f"{entry['concentration']:.2f}" if entry.get("concentration") is not None else "N/A"
             })
         
         history_df = pd.DataFrame(history_data)
@@ -1469,6 +1565,34 @@ with tab2:
 # TAB 3: FEATURE IMPORTANCE
 with tab3:
     st.markdown("## 📈 Feature Importance")
+    
+    # Check for regression importance
+    if st.session_state.last_regressor_info:
+        st.markdown("### Regression Model Importance")
+        st.info(f"Top features for **{st.session_state.last_prediction} Concentration** prediction.")
+        
+        reg_imps = st.session_state.last_regressor_info["importances"]
+        reg_feat_names = [f"Feature {i+1}" for i in range(len(reg_imps))]
+        
+        reg_df = pd.DataFrame({
+            "Feature": reg_feat_names,
+            "Importance": reg_imps
+        }).sort_values("Importance", ascending=False).head(20)
+        
+        fig_reg = px.bar(
+            reg_df,
+            x="Importance",
+            y="Feature",
+            orientation='h',
+            title=f"Top Features for Concentration Prediction",
+            color="Importance",
+            color_continuous_scale="Greens"
+        )
+        fig_reg.update_layout(yaxis={'categoryorder':'total ascending'}, height=400)
+        st.plotly_chart(fig_reg, use_container_width=True)
+        st.markdown("---")
+
+    st.markdown("### Classifier Importance")
     
     if model_info["has_feature_importances"]:
         importances = model.feature_importances_
